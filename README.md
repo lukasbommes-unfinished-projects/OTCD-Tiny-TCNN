@@ -17,23 +17,39 @@ There maybe a slight gap between the performance obtained by this script and the
 ```
 
 ## 3. Requirements
-```
-PyTorch = 0.3
-python >= 3.5
-```
 
-## 4. Usage
-1) before running `OTCD`, [`CoViAR`](https://github.com/chaoyuaw/pytorch-coviar) needs to be installed. Please click the URL for the usage of `CoViAR`.
+[Docker](https://docs.docker.com/install/linux/docker-ce/ubuntu/)
+[Nvidia-Docker](https://github.com/NVIDIA/nvidia-docker/wiki/Installation-(version-2.0))
+[Docker-Compose](https://pypi.org/project/docker-compose/)
+
+## 4. Quickstart
 
 1) down load this repo.
 ```
 git clone https://github.com/liuqk3/OTCD.git
 cd OTCD
 ```
-2) download the pretrained model from [BaiduYunPan](https://pan.baidu.com/s/1-Enzek8SQpnr1BY1uzde4w). Then put all models to ```./save```. If you have any problems with the download process, please email me.
 
-3) run the tracker
+2) Build docker image
+```
+sudo docker-compose build
+```
 
+3) Download the pretrained model from [BaiduYunPan](https://pan.baidu.com/s/1-Enzek8SQpnr1BY1uzde4w). Then put all models to ```./save```. If you have any problems with the download process, please email me.
+
+4) Download [MOT Challenge dataset](https://motchallenge.net/) and place into a sub directory of OTCD. If placed outside of the OTCD directory, edit the volume mapping in `docker-compose.yml`.
+
+5) When finished start docker container
+```
+sudo docker-compose up -d
+```
+
+6) Enter the container
+```
+sudo docker exec -it otcd bash
+```
+
+7) Start tracker
 ```
 python tracking_on_mot.py --mot_dir path/to/MOT-dataset
 ```

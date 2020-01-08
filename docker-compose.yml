@@ -12,6 +12,7 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw  # for GUI access
       - .:/workspace
-      - /home/lukas/mv-tracker/data:/workspace/data
+    # example for volume mapping if MOt data is outside the OTCD directory
+    #  - /home/lukas/mv-tracker/data:/workspace/data
     entrypoint: ./docker-entrypoint.sh
     command: tail -f /dev/null
