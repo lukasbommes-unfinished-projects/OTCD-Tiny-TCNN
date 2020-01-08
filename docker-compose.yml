@@ -13,3 +13,5 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw  # for GUI access
       - .:/workspace
       - /home/lukas/mv-tracker/data:/workspace/data
+    entrypoint: ./docker-entrypoint.sh
+    command: tail -f /dev/null
