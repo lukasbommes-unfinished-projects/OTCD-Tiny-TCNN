@@ -18,13 +18,13 @@ There maybe a slight gap between the performance obtained by this script and the
 
 ## 3. Requirements
 
-[Docker](https://docs.docker.com/install/linux/docker-ce/ubuntu/)
-[Nvidia-Docker](https://github.com/NVIDIA/nvidia-docker/wiki/Installation-(version-2.0))
-[Docker-Compose](https://pypi.org/project/docker-compose/)
+- [Docker](https://docs.docker.com/install/linux/docker-ce/ubuntu/)
+- [Nvidia-Docker](https://github.com/NVIDIA/nvidia-docker/wiki/Installation-(version-2.0))
+- [Docker-Compose](https://pypi.org/project/docker-compose/)
 
 ## 4. Quickstart
 
-1) down load this repo.
+1) Download this repo
 ```
 git clone https://github.com/liuqk3/OTCD.git
 cd OTCD
