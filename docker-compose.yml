@@ -1,0 +1,15 @@
+version: "2.3"
+
+services:
+
+  otcd:
+    container_name: otcd
+    build: .
+    runtime: nvidia
+    environment:
+      - DISPLAY
+    ipc: host # for GUI
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw  # for GUI access
+      - .:/workspace
+      - /home/lukas/mv-tracker/data:/workspace/data

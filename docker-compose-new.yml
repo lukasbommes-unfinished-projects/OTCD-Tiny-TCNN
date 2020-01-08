@@ -1,0 +1,16 @@
+version: "2.3"
+
+services:
+
+  otcd_pytorch_1_3:
+    container_name: otcd_pytorch_1_3
+    image: pytorch6
+    runtime: nvidia
+    environment:
+      - DISPLAY
+    ipc: host # for GUI
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw  # for GUI access
+      - .:/workspace
+    entrypoint: ./docker-entrypoint.sh
+    command: tail -f /dev/null

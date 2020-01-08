@@ -21,7 +21,7 @@ def parse_args():
     Parse input arguments
     """
     parser = argparse.ArgumentParser(description='Train a Fast R-CNN network')
-    parser.add_argument('--mot_dir', default='/home/liuqk/Dataset/MOT',
+    parser.add_argument('--mot_dir', default='data',
                         help='training dataset', type=str)
     parser.add_argument('--cfg_file',
                         help='optional config file',
@@ -63,8 +63,8 @@ if __name__ == '__main__':
     else:
         args.mGPUs = False
 
-    args.dataset_year = ['MOT16']  # ['MOT16', 'MOT17']
-    args.detectors = ['DPM']#, 'SDP', 'FRCNN'] # ['PRIVATE', 'DPM', 'SDP', 'FRCNN', 'POI']
+    args.dataset_year = ['MOT17']  # ['MOT16', 'MOT17']
+    args.detectors = ['FRCNN']#, 'SDP', 'FRCNN'] # ['PRIVATE', 'DPM', 'SDP', 'FRCNN', 'POI']
     args.stage = ['test'] # ['test', 'val']
 
     print(args.stage)
@@ -207,7 +207,7 @@ if __name__ == '__main__':
 
                     print('tracking on ' + seq + ' using ' + det_name + ' detector ...')
 
-                    video_file = os.path.join(args.mot_dir, one_dataset, s, seq, seq + '.mp4')
+                    video_file = os.path.join(args.mot_dir, one_dataset, s, seq, seq + '-mpeg4-1.0.mp4')
                     if not os.path.exists(video_file):
                         raise RuntimeError(video_file + ' does not exists')
 
