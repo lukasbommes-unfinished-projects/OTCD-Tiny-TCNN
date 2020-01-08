@@ -207,7 +207,7 @@ if __name__ == '__main__':
 
                     print('tracking on ' + seq + ' using ' + det_name + ' detector ...')
 
-                    video_file = os.path.join(args.mot_dir, one_dataset, s, seq, seq + '-mpeg4-1.0.mp4')
+                    video_file = os.path.join(args.mot_dir, one_dataset, s, seq, seq + '.mp4')
                     if not os.path.exists(video_file):
                         raise RuntimeError(video_file + ' does not exists')
 
