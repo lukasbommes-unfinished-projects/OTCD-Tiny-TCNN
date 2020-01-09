@@ -8,3 +8,5 @@ Pillow==6.2.2
 sklearn
 torch==0.3.1
 torchvision==0.2.1
+lapsolver
+motmetrics

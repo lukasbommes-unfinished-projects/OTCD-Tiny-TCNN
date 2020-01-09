@@ -65,7 +65,7 @@ if __name__ == '__main__':
 
     args.dataset_year = ['MOT17']  # ['MOT16', 'MOT17']
     args.detectors = ['FRCNN']#, 'SDP', 'FRCNN'] # ['PRIVATE', 'DPM', 'SDP', 'FRCNN', 'POI']
-    args.stage = ['test'] # ['test', 'val']
+    args.stage = ['val'] # ['test', 'val']
 
     print(args.stage)
 
@@ -85,6 +85,7 @@ if __name__ == '__main__':
 
     args.tracking_box_transform_sigma = 1.5
     args.tracking_model = './save/tracking_net_single_resnet18_mv_residual_2_10_6034.pth'
+    args.tracking_net_data_type = 'mv_residual'
 
     # ----------------set the configures for the model we trained on motchallenge ------------------------------
     if args.large_scale:
@@ -207,7 +208,7 @@ if __name__ == '__main__':
 
                     print('tracking on ' + seq + ' using ' + det_name + ' detector ...')
 
-                    video_file = os.path.join(args.mot_dir, one_dataset, s, seq, seq + '.mp4')
+                    video_file = os.path.join(args.mot_dir, one_dataset, s, seq, seq + '-mpeg4-1.0.mp4')
                     if not os.path.exists(video_file):
                         raise RuntimeError(video_file + ' does not exists')
 
@@ -230,7 +231,7 @@ if __name__ == '__main__':
                     if not os.path.exists(detection_output_path):
                         os.makedirs(detection_output_path)
 
-                    time_file = os.path.join(tracking_output_path, 'time_analysis' + det_name + '.txt')
+                    time_file = os.path.join(tracking_output_path, 'time_analysis' + det_name + '.log')
                     tracking_output_file = os.path.join(tracking_output_path, seq + '.txt')
                     detection_output_file = os.path.join(detection_output_path, seq + '.txt')
 
