@@ -12,7 +12,20 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw  # for GUI access
       - .:/workspace
-    # example for volume mapping if MOt data is outside the OTCD directory
+      # example for volume mapping if MOt data is outside the OTCD directory
       - /home/lukas/mv-tracker/data:/workspace/data
     entrypoint: ./docker-entrypoint.sh
+    command: tail -f /dev/null
+
+  otcd_pytorch_1_3:
+    container_name: otcd_pytorch_1_3
+    image: pytorch6
+    runtime: nvidia
+    environment:
+      - DISPLAY
+    ipc: host # for GUI
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw  # for GUI access
+      - .:/workspace
+    entrypoint: ./docker-entrypoint-2.sh
     command: tail -f /dev/null
