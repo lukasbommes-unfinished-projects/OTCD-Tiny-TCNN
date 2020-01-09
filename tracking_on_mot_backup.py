@@ -10,7 +10,6 @@ import numpy as np
 from lib.model.detection_net.rfcn import RFCN
 from lib.model.detection_sbc_joint.det_sbc import DET_SBC
 from lib.model.tracking_net.rfcn_tracking_single_branch import RFCN_tracking
-from tiny_tcnn.tracker import Tracker as TrackerTinyTCNN
 from lib.model.utils.config import cfg, cfg_from_file, cfg_from_list
 from lib.model.sbc_net.spatial_binary_classifier import SBC
 import torch
@@ -88,9 +87,6 @@ if __name__ == '__main__':
     args.tracking_model = './save/tracking_net_single_resnet18_mv_residual_2_10_6034.pth'
     args.tracking_net_data_type = 'mv_residual'
 
-    # whether to use Tiny T-CNN instead of original T-CNN
-    args.use_tiny_tcnn = True
-
     # ----------------set the configures for the model we trained on motchallenge ------------------------------
     if args.large_scale:
         args.cfg_file = "./cfgs/resnet101_ls.yml"
@@ -148,17 +144,10 @@ if __name__ == '__main__':
     print('Called with args:')
     print(args)
 
-    if args.use_tiny_tcnn:
-        tracker_tiny_tcnn = TrackerTinyTCNN(base_net_model=detection_model,
-                                            tracking_model=tracking_model,  # TODO: remove this later
-                                            appearance_model=appearance_model,
-                                            args=args, cfg=cfg)
-    else:
-        tracker = Tracker(base_net_model=detection_model,
-                          tracking_model=tracking_model,
-                          appearance_model=appearance_model,
-                          args=args, cfg=cfg)
-
+    tracker = Tracker(base_net_model=detection_model,
+                      tracking_model=tracking_model,
+                      appearance_model=appearance_model,
+                      args=args, cfg=cfg)
 
     mot_seqs = {
         'MOT16': {
@@ -223,23 +212,16 @@ if __name__ == '__main__':
                     if not os.path.exists(video_file):
                         raise RuntimeError(video_file + ' does not exists')
 
-                    if args.use_tiny_tcnn:
-                        tcnn_dir_name = "TinyTCNN"
-                    else:
-                        tcnn_dir_name = "TCNN"
-
                     if one_dataset == 'MOT17':
                         tracking_output_path = os.path.join('./track_results/',
                                                             str(args.tracking_box_transform_sigma),
                                                             str(args.detection_interval),
-                                                            args.iou_or_appearance, tcnn_dir_name,
-                                                            one_dataset, s)
+                                                            args.iou_or_appearance, one_dataset, s)
                     else:
                         tracking_output_path = os.path.join('./track_results/',
                                                             str(args.tracking_box_transform_sigma),
                                                             str(args.detection_interval),
-                                                            args.iou_or_appearance, tcnn_dir_name,
-                                                            one_dataset, det_name, s)
+                                                            args.iou_or_appearance, one_dataset, det_name, s)
 
                     detection_output_path = os.path.join('./detect_results',
                                                          str(args.detection_interval),
@@ -253,15 +235,9 @@ if __name__ == '__main__':
                     tracking_output_file = os.path.join(tracking_output_path, seq + '.txt')
                     detection_output_file = os.path.join(detection_output_path, seq + '.txt')
 
-                    if args.use_tiny_tcnn:
-                        tracker_tiny_tcnn.track_on_video(video_file=video_file,
+                    tracker.track_on_video(video_file=video_file,
                                            tracking_output_file=tracking_output_file,
                                            detection_output_file=detection_output_file,
                                            detector_name=det_name)
-                        tracker_tiny_tcnn.save_time(time_file)
-                    else:
-                        tracker.track_on_video(video_file=video_file,
-                                               tracking_output_file=tracking_output_file,
-                                               detection_output_file=detection_output_file,
-                                               detector_name=det_name)
-                        tracker.save_time(time_file)
+
+                tracker.save_time(time_file)

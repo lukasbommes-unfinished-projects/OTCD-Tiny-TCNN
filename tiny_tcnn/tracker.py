@@ -5,6 +5,10 @@ import torch
 import coviar
 import pandas
 from torch.autograd import Variable
+import pickle
+import struct
+import socket
+from socket_utils import socket_config, send_msg, recv_msg
 
 from lib.model.nms.nms_wrapper import nms
 from lib.model.rpn.bbox_transform import bbox_transform_inv, clip_boxes, bbox_transform_inv_one_class, bbox_iou
@@ -118,6 +122,10 @@ class Tracker:
         self.num_boxes = Variable(self.num_boxes, volatile=True)
         self.track_feature = Variable(self.track_feature, volatile=True)
         self.detection_feature = Variable(self.detection_feature, volatile=True)
+
+        # socket connection for data exchange with Tiny T-CNN container
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((socket_config["host"], socket_config['port']))
 
     def prepare_data_to_show(self, in_data, tool_type='cv2'):
         # indata: [bs, c, h, w]
@@ -877,14 +885,38 @@ class Tracker:
             self.im_info.data.resize_(im_info_tmp.size()).copy_(im_info_tmp).contiguous()
             self.im_data.data.resize_(im_data_tmp.size()).copy_(im_data_tmp).contiguous()
 
-            #print("self.boxes", self.boxes.data, "boxes shape", self.boxes.data.shape)
-            #print("im_data shape", self.im_data.data.shape)
+            #t2 = time.time()
+            #output = self.tracking_model(self.boxes, self.im_data)  # the deltas, [bs, num_box, 4]
+            #track_time = time.time() - t2
 
-            t2 = time.time()
-            output = self.tracking_model(self.boxes, self.im_data)  # the deltas, [bs, num_box, 4]
-            track_time = time.time() - t2
+            # TODO:
+            # - send input data via socket to Tiny T-CNN in second container
+            # - perform timing analysis in second container
+            # - retrieve network output and timing result here
+            #output, track_time = socketsend(self.boxes, self.im_data)
 
-            #print("output", output.data, "output shape:", output.data.shape)
+            print("sending data to tiny t-cnn container:")
+            print("self.boxes", self.boxes.data, "boxes shape", self.boxes.data.shape)
+            print("im_data shape", self.im_data.data.shape)
+
+            socket_data = {
+                "boxes": self.boxes.data.cpu(),
+                "im_data": self.im_data.data.cpu()
+            }
+            #socket_data = ["Hallo", "Welt"]
+            socket_data = pickle.dumps(socket_data)
+            print("Data processed. Sending...")
+            send_msg(self.sock, socket_data)
+            print("Data sent.")
+
+            # receive output from socket
+            socket_data = recv_msg(self.sock)
+            if socket_data:
+                socket_data = pickle.loads(socket_data)
+                print("received model output via socket.")
+                print(socket_data)
+                output = socket_data
+                track_time = 0
 
             return output, load_time, track_time
         else:
@@ -1459,3 +1491,4 @@ class Tracker:
 
         # reset the tracker so it can track on the next video
         self.reset(tracking_output_file=tracking_output_file, detection_output_file=detection_output_file)
+        self.sock.close()

@@ -9,6 +9,8 @@ services:
     environment:
       - DISPLAY
     ipc: host # for GUI
+    depends_on:
+        - otcd_pytorch_1_3
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw  # for GUI access
       - .:/workspace
@@ -27,5 +29,6 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw  # for GUI access
       - .:/workspace
+      - /home/lukas/mv-tracker/data:/workspace/data
     entrypoint: ./docker-entrypoint-2.sh
     command: tail -f /dev/null
