@@ -8,7 +8,7 @@ from torch.autograd import Variable
 import pickle
 import struct
 import socket
-from socket_utils import socket_config, send_msg, recv_msg
+from socket_utils import send_msg, recv_msg
 import cv2
 
 from lib.model.nms.nms_wrapper import nms
@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 from tiny_tcnn.transforms.transforms import StandardizeMotionVectors, StandardizeVelocities
 from tiny_tcnn.dataset.motion_vectors import get_vectors_by_source, normalize_vectors, motion_vectors_to_grid
 from tiny_tcnn.dataset.stats import StatsMpeg4DenseFullSinglescale as Stats
+from tiny_tcnn.dataset.velocities import box_from_velocities_2d
 
 class Tracker:
     def __init__(self, base_net_model, appearance_model, classes=None, args=None, cfg=None):
@@ -137,6 +138,8 @@ class Tracker:
             mean=stats.velocities["mean"],
             std=stats.velocities["std"],
             inverse=True)
+
+        self.sock = args.socket
 
     def prepare_data_to_show(self, in_data, tool_type='cv2'):
         # indata: [bs, c, h, w]
@@ -384,7 +387,35 @@ class Tracker:
             sample = self.standardize_motion_vectors({"motion_vectors": [motion_vectors]})
             motion_vectors = sample["motion_vectors"][0][0, ...].numpy()
 
-            return motion_vectors, 1.0
+
+            # compute residual scale
+            mv = coviar.load(video_path, gop_idx, in_group_idx, 1, accumulate)
+            residual = coviar.load(video_path, gop_idx, in_group_idx, 2, accumulate)
+
+            # check whether it is a gray image
+            if len(residual.shape) == 2:
+                residual = residual[:, :, np.newaxis]
+                residual = np.concatenate((residual, residual, residual), axis=2)
+
+            residual_shape = residual.shape
+            residual_size_min = np.min(residual_shape[0:2])
+            residual_size_max = np.max(residual_shape[0:2])
+
+            target_size = self.cfg.TEST.SCALES[0]  # cfg.TEST.SCALES = (600, )
+            # Prevent the biggest axis from being more than MAX_SIZE
+            residual_scale = float(target_size) / float(residual_size_min)
+            if np.round(residual_scale * residual_size_max) > self.cfg.TEST.MAX_SIZE:
+                im_scale = float(self.cfg.TEST.MAX_SIZE) / float(residual_size_max)
+                target_size = np.round(im_scale * residual_size_min)
+
+            residual, residual_scale = prep_residual_for_blob(im=residual,
+                                                              pixel_normal_scale=self.cfg.RESIDUAL_NORMAL_SCALE,
+                                                              pixel_means=self.cfg.RESIDUAL_MEANS,
+                                                              pixel_stds=self.cfg.RESIDUAL_STDS,
+                                                              target_size=target_size,
+                                                              channel=self.cfg.RESIDUAL_CHANNEL)
+
+            return motion_vectors, residual_scale
 
         # if load_data_for == 'track': # load mv and residual
         #     mv = coviar.load(video_path, gop_idx, in_group_idx, 1, accumulate)
@@ -945,18 +976,19 @@ class Tracker:
             # - send input data via socket to Tiny T-CNN in second container
             # - perform timing analysis in second container
             # - retrieve network output and timing result here
-            print("sending data to tiny t-cnn container:")
-            print("self.boxes", self.boxes.data, "boxes shape", self.boxes.data.shape)
+            #print("sending data to tiny t-cnn container:")
+            #print("self.boxes", self.boxes.data, "boxes shape", self.boxes.data.shape)
             #print("im_data shape", self.im_data.data.shape)
 
             socket_data = {
                 "boxes": self.boxes.data.cpu().numpy(),
-                "im_data": self.im_data.data.cpu().numpy()
+                "im_data": self.im_data.data.cpu().numpy(),
+                "im_scale_tmp": im_scale_tmp
             }
             socket_data = pickle.dumps(socket_data)
             #print("Data processed. Sending...")
             send_msg(self.sock, socket_data)
-            print("Data sent.")
+            #print("Data sent.")
 
             # receive output from socket
             output = None
@@ -967,19 +999,19 @@ class Tracker:
                 velocities_pred = torch.from_numpy(socket_data["velocities_pred"])
                 track_time = socket_data["track_time"]
 
-                print("velocities_pred received", velocities_pred)
+                #print("velocities_pred received", velocities_pred)
 
                 # post process velocities to become torch.FloatTensor of shape [1, K, 4] where K is number of boxes
                 velocities_pred = velocities_pred.view(1, -1, 2)
                 velocities_pred = velocities_pred[0, ...]
                 sample = self.standardize_velocities({"velocities": velocities_pred})
                 velocities_pred = sample["velocities"]
-                velocities_pred = velocities_pred.unsqueeze(dim=0)
-                velocities_pred = torch.cat([velocities_pred, torch.zeros_like(velocities_pred)], dim=-1)
+                #velocities_pred = velocities_pred.unsqueeze(dim=0)
+                #velocities_pred = torch.cat([velocities_pred, torch.zeros_like(velocities_pred)], dim=-1)
 
-                print("received model output via socket.")
-                print("velocities_pred", velocities_pred)
-                print("track_time", track_time)
+                #print("received model output via socket.")
+                #print("velocities_pred", velocities_pred)
+                #print("track_time", track_time)
 
                 output = velocities_pred.cuda()
 
@@ -1001,17 +1033,66 @@ class Tracker:
             if isinstance(output, Variable):
                 output = output.data
 
+            output = output.unsqueeze(dim=0)
+            output = torch.cat([output, torch.zeros_like(output)], dim=-1)
+
+            print("output type", type(output)) # output type <class 'torch.cuda.FloatTensor'>
+            print("output.shape", output.shape) # output.shape torch.Size([1, K, 4])
+            print(output)
+
             box_deltas = output.clone()
             batch_size = box_deltas.size(0)
             if self.cfg.TRAIN.BBOX_NORMALIZE_TARGETS_PRECOMPUTED:
                 # Optionally normalize targets by a precomputed mean and stdev
                 #box_deltas = box_deltas.view(-1, 4) * self.bbox_reg_std + self.bbox_reg_mean  # [num_box, 4]
                 box_deltas = box_deltas.view(batch_size, -1, 4)
+            #print("boxes prev", self.boxes.data)
             boxes = bbox_transform_inv(boxes=self.boxes.data, deltas=box_deltas,
                                        sigma=1.0)  # [1, num_box, 4]
+            #print("boxes_pred", boxes)
+
+            print("boxes type", type(boxes)) # output type <class 'torch.cuda.FloatTensor'>
+            print("boxes.shape", boxes.shape) # output.shape torch.Size([1, K, 4])
+            print(boxes)
 
             for t_idx in range(len(self.tracks)):
                 self.tracks[t_idx].tracking(bbox_tlbr=boxes[0, t_idx, :])
+
+        # TODO: replace with my own code to compute boxes from predicted velocities
+
+        # if output is not None:
+        #     if isinstance(output, Variable):
+        #         output = output.data
+        #
+        #     velocities_pred = output.clone()
+        #
+        #     print("velocities_pred.shape", velocities_pred.shape)
+        #
+        #     boxes_prev = self.boxes.data.clone()
+        #     print("boxes_prev.shape 1", boxes_prev.shape)
+        #
+        #     boxes_prev = boxes_prev[0, ...]
+        #     boxes_prev[2:4] = boxes_prev[2:4] - boxes_prev[0:2] + 1   # convert from tlbr to tlwh
+        #
+        #     print("boxes_prev.shape 2", boxes_prev.shape)
+        #
+        #     boxes_pred = box_from_velocities_2d(boxes_prev, velocities_pred)
+        #
+        #     print("boxes_pred.shape 1", boxes_pred.shape)
+        #
+        #     #boxes_pred = boxes_pred.clone()
+        #     boxes_pred[2:4] = boxes_pred[2:4] + boxes_pred[0:2] - 1  # convert from tlwh to tlbr
+        #
+        #     #boxes_pred = boxes_pred.cuda()
+        #
+        #     print("boxes_pred type", type(boxes_pred))
+        #     print("boxes_pred.shape 2", boxes_pred.shape)
+        #     print(boxes_pred)
+        #
+        #     for t_idx in range(len(self.tracks)):
+        #         self.tracks[t_idx].tracking(bbox_tlbr=boxes_pred[t_idx, :])
+
+
 
     def initiate_track(self, detection):
         """
@@ -1436,10 +1517,6 @@ class Tracker:
         if not os.path.exists(video_file):
             raise RuntimeError(video_file + ' does not exists')
 
-        # open a new socket connection to Tiny T-CNN container
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((socket_config["host"], socket_config['port']))
-
         video_file_list = video_file.split('/')
         self.seq = video_file_list[-2]
         self.tracked_seqs.append(self.seq)
@@ -1548,7 +1625,13 @@ class Tracker:
                 print('track on {}, number of frames: {}/{}, number of tracks {}. Detector: {}'.
                       format(video_file, frame_id, num_frames, len(self.tracks), self.detector_name))
                 # do not detect on this frame, just move the boxes of each track to the next frame
+
+                print("frame_id", frame_id)
+                print("boxes before tracking", self.boxes.data)
+
                 output, load_time, track_time = self.do_tracking()
+
+                print("boxes after tracking", self.boxes.data)
 
                 t1 = time.time()
                 self.track_output_to_offsets(output)
@@ -1566,4 +1649,3 @@ class Tracker:
 
         # reset the tracker so it can track on the next video
         self.reset(tracking_output_file=tracking_output_file, detection_output_file=detection_output_file)
-        self.sock.close()

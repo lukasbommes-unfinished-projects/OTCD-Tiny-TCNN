@@ -46,9 +46,12 @@ while True:
                 #print(type(socket_data["im_data"]), "im_data", socket_data["im_data"], "im_data shape", socket_data["im_data"].shape)
                 boxes_prev = torch.from_numpy(socket_data["boxes"])
                 motion_vectors_p = torch.from_numpy(socket_data["im_data"])
+                im_scale_tmp = socket_data["im_scale_tmp"]
+
+                # scale up boxes to original frame size (OTCD works with scaled down frames)
+                boxes_prev = boxes_prev / im_scale_tmp
 
                 # change box format from tlbr to tlwh
-                boxes_prev = boxes_prev.clone()
                 boxes_prev[..., 2:4] = boxes_prev[..., 2:4] - boxes_prev[..., 0:2] + 1
 
                 # add frame_idx into boxes
@@ -78,17 +81,10 @@ while True:
                     torch.cuda.synchronize()
                     last_inference_dt = start_inference.elapsed_time(end_inference) / 1000.0
 
-                #print("velocities_pred shape", velocities_pred.shape)
-
-                # post-process velcoties, e.g. de-standardize
-                velocities_pred = velocities_pred.cpu()
-
-                # convert output to numpy because tensors are not compatible between pytorch 0.3.1 and 1.4.0
-                velocities_pred = velocities_pred.numpy()
-
                 # send model output back to other container
+                # convert output to numpy because tensors are not compatible between pytorch 0.3.1 and 1.4.0
                 socket_data = {
-                    "velocities_pred": velocities_pred,
+                    "velocities_pred": velocities_pred.cpu().numpy(),
                     "track_time": last_inference_dt
                 }
                 socket_data = pickle.dumps(socket_data)

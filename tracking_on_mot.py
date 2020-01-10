@@ -16,6 +16,8 @@ from lib.model.sbc_net.spatial_binary_classifier import SBC
 import torch
 import torch.nn as nn
 import pprint
+import socket
+from socket_utils import socket_config
 
 def parse_args():
     """
@@ -90,6 +92,11 @@ if __name__ == '__main__':
 
     # whether to use Tiny T-CNN instead of original T-CNN
     args.use_tiny_tcnn = True
+
+    # open a new socket connection to Tiny T-CNN container
+    if args.use_tiny_tcnn:
+        args.socket =  socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        args.socket.connect((socket_config["host"], socket_config['port']))
 
     # ----------------set the configures for the model we trained on motchallenge ------------------------------
     if args.large_scale:
@@ -264,3 +271,6 @@ if __name__ == '__main__':
                                                detection_output_file=detection_output_file,
                                                detector_name=det_name)
                         tracker.save_time(time_file)
+
+    if args.use_tiny_tcnn:
+        args.socket.close()

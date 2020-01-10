@@ -220,6 +220,11 @@ def bbox_transform_inv(boxes, deltas, batch_size=None, sigma=1/math.sqrt(2)):
     dw = deltas[:, :, 2::4]
     dh = deltas[:, :, 3::4]
 
+    #print("dx", dx)
+    #print("dy", dy)
+    #print("dw", dw)
+    #print("dh", dh)
+
     pred_ctr_x = dx * widths.unsqueeze(2) / (math.sqrt(2) * sigma) + ctr_x.unsqueeze(2)
     pred_ctr_y = dy * heights.unsqueeze(2) / (math.sqrt(2) * sigma) + ctr_y.unsqueeze(2)
     pred_w = torch.exp(dw) * widths.unsqueeze(2)
@@ -235,7 +240,7 @@ def bbox_transform_inv(boxes, deltas, batch_size=None, sigma=1/math.sqrt(2)):
     # y2
     pred_boxes[:, :, 3::4] = pred_ctr_y + 0.5 * pred_h
 
-    return pred_boxes
+    return pred_boxes  # [x1, y1, x2, y2]
 
 
 def bbox_transform_inv_one_class(boxes, deltas, sigma=1/math.sqrt(2)):
@@ -535,19 +540,3 @@ def bbox_iou_batch(boxes1, boxes2):
     area_2 = torch.prod(boxes2[:, :, :, 2:4] - boxes2[:, :, :, 0:2], dim=3)
 
     return area_intersection / (area_1 + area_2 - area_intersection)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
