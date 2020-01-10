@@ -1,0 +1,5 @@
+Tiny T-CNN:
+python3 compute_metrics.py data/MOT17/train track_results/1.5/3/both/TinyTCNN/MOT17/train
+
+original OTCD:
+python3 compute_metrics.py data/MOT17/train track_results/1.5/3/both/TCNN/MOT17/train

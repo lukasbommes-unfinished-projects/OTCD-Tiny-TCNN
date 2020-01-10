@@ -12,7 +12,7 @@ from socket_utils import send_msg, recv_msg
 import cv2
 
 from lib.model.nms.nms_wrapper import nms
-from lib.model.rpn.bbox_transform import bbox_transform_inv, clip_boxes, bbox_transform_inv_one_class, bbox_iou
+from lib.model.rpn.bbox_transform import bbox_transform_inv, bbox_transform_inv_corrected, clip_boxes, bbox_transform_inv_one_class, bbox_iou
 from lib.model.utils.blob_single import prep_im_for_blob, prep_mv_for_blob, prep_residual_for_blob
 from lib.utils.misc import resize_im
 from lib.utils.image_viewer import ImageViewer
@@ -28,7 +28,6 @@ import matplotlib.pyplot as plt
 from tiny_tcnn.transforms.transforms import StandardizeMotionVectors, StandardizeVelocities
 from tiny_tcnn.dataset.motion_vectors import get_vectors_by_source, normalize_vectors, motion_vectors_to_grid
 from tiny_tcnn.dataset.stats import StatsMpeg4DenseFullSinglescale as Stats
-from tiny_tcnn.dataset.velocities import box_from_velocities_2d
 
 class Tracker:
     def __init__(self, base_net_model, appearance_model, classes=None, args=None, cfg=None):
@@ -1006,8 +1005,8 @@ class Tracker:
                 velocities_pred = velocities_pred[0, ...]
                 sample = self.standardize_velocities({"velocities": velocities_pred})
                 velocities_pred = sample["velocities"]
-                #velocities_pred = velocities_pred.unsqueeze(dim=0)
-                #velocities_pred = torch.cat([velocities_pred, torch.zeros_like(velocities_pred)], dim=-1)
+                velocities_pred = velocities_pred.unsqueeze(dim=0)
+                velocities_pred = torch.cat([velocities_pred, torch.zeros_like(velocities_pred)], dim=-1)
 
                 #print("received model output via socket.")
                 #print("velocities_pred", velocities_pred)
@@ -1033,13 +1032,6 @@ class Tracker:
             if isinstance(output, Variable):
                 output = output.data
 
-            output = output.unsqueeze(dim=0)
-            output = torch.cat([output, torch.zeros_like(output)], dim=-1)
-
-            print("output type", type(output)) # output type <class 'torch.cuda.FloatTensor'>
-            print("output.shape", output.shape) # output.shape torch.Size([1, K, 4])
-            print(output)
-
             box_deltas = output.clone()
             batch_size = box_deltas.size(0)
             if self.cfg.TRAIN.BBOX_NORMALIZE_TARGETS_PRECOMPUTED:
@@ -1047,52 +1039,12 @@ class Tracker:
                 #box_deltas = box_deltas.view(-1, 4) * self.bbox_reg_std + self.bbox_reg_mean  # [num_box, 4]
                 box_deltas = box_deltas.view(batch_size, -1, 4)
             #print("boxes prev", self.boxes.data)
-            boxes = bbox_transform_inv(boxes=self.boxes.data, deltas=box_deltas,
+            boxes = bbox_transform_inv_corrected(boxes=self.boxes.data, deltas=box_deltas,
                                        sigma=1.0)  # [1, num_box, 4]
-            #print("boxes_pred", boxes)
-
-            print("boxes type", type(boxes)) # output type <class 'torch.cuda.FloatTensor'>
-            print("boxes.shape", boxes.shape) # output.shape torch.Size([1, K, 4])
-            print(boxes)
+            #print("boxes after", boxes)
 
             for t_idx in range(len(self.tracks)):
                 self.tracks[t_idx].tracking(bbox_tlbr=boxes[0, t_idx, :])
-
-        # TODO: replace with my own code to compute boxes from predicted velocities
-
-        # if output is not None:
-        #     if isinstance(output, Variable):
-        #         output = output.data
-        #
-        #     velocities_pred = output.clone()
-        #
-        #     print("velocities_pred.shape", velocities_pred.shape)
-        #
-        #     boxes_prev = self.boxes.data.clone()
-        #     print("boxes_prev.shape 1", boxes_prev.shape)
-        #
-        #     boxes_prev = boxes_prev[0, ...]
-        #     boxes_prev[2:4] = boxes_prev[2:4] - boxes_prev[0:2] + 1   # convert from tlbr to tlwh
-        #
-        #     print("boxes_prev.shape 2", boxes_prev.shape)
-        #
-        #     boxes_pred = box_from_velocities_2d(boxes_prev, velocities_pred)
-        #
-        #     print("boxes_pred.shape 1", boxes_pred.shape)
-        #
-        #     #boxes_pred = boxes_pred.clone()
-        #     boxes_pred[2:4] = boxes_pred[2:4] + boxes_pred[0:2] - 1  # convert from tlwh to tlbr
-        #
-        #     #boxes_pred = boxes_pred.cuda()
-        #
-        #     print("boxes_pred type", type(boxes_pred))
-        #     print("boxes_pred.shape 2", boxes_pred.shape)
-        #     print(boxes_pred)
-        #
-        #     for t_idx in range(len(self.tracks)):
-        #         self.tracks[t_idx].tracking(bbox_tlbr=boxes_pred[t_idx, :])
-
-
 
     def initiate_track(self, detection):
         """
@@ -1626,12 +1578,7 @@ class Tracker:
                       format(video_file, frame_id, num_frames, len(self.tracks), self.detector_name))
                 # do not detect on this frame, just move the boxes of each track to the next frame
 
-                print("frame_id", frame_id)
-                print("boxes before tracking", self.boxes.data)
-
                 output, load_time, track_time = self.do_tracking()
-
-                print("boxes after tracking", self.boxes.data)
 
                 t1 = time.time()
                 self.track_output_to_offsets(output)

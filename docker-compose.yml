@@ -31,4 +31,4 @@ services:
       - .:/workspace
       - /home/lukas/mv-tracker/data:/workspace/data
     entrypoint: ./docker-entrypoint-2.sh
-    command: tail -f /dev/null
+    command: python run_tiny_tcnn_in_container.py

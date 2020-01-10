@@ -14,10 +14,10 @@ sock.listen(1)
 
 # init Tiny T-CNN as tracking net
 if torch.cuda.is_available():
-    print("Using GPU")
+    #print("Using GPU")
     device = torch.device("cuda:0")
 else:
-    print("Using CPU")
+    #print("Using CPU")
     device = torch.device("cpu")
 tracking_net = PropagationNetwork(vector_type='p')
 tracking_net = tracking_net.to(device)
@@ -32,7 +32,6 @@ tracking_net.eval()
 while True:
     # Wait for a connection
     client_socket, client_address = sock.accept()
-    print("Waiting for connection...")
 
     try:
         while True:
@@ -63,7 +62,7 @@ while True:
                 # rescale because motion vector image is factor 16 smaller than original frame
                 boxes_prev = boxes_prev / 16.0
 
-                print("boxes_prev", boxes_prev)
+                #print("boxes_prev", boxes_prev)
 
                 boxes_prev = boxes_prev.to(device)
                 motion_vectors_p = motion_vectors_p.to(device)
@@ -92,7 +91,7 @@ while True:
                 send_msg(client_socket, socket_data)
                 #print("Output sent.")
 
-                print("Predicted vecloties: ", velocities_pred)
+                #print("Predicted vecloties: ", velocities_pred)
 
     finally:
         client_socket.close()
