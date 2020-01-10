@@ -64,8 +64,8 @@ class StandardizeMotionVectors:
         sample_transformed = copy.deepcopy(sample)
         for i in range(len(sample["motion_vectors"])):
             motion_vectors = sample["motion_vectors"][i].clone()
-            mean = torch.tensor(self.mean[i])
-            std = torch.tensor(self.std[i])
+            mean = torch.FloatTensor(self.mean[i])
+            std = torch.FloatTensor(self.std[i])
             motion_vectors = (motion_vectors - mean) / std
             sample_transformed["motion_vectors"][i] = motion_vectors
         return sample_transformed
@@ -94,8 +94,8 @@ class StandardizeVelocities:
             v_w, v_h}
     """
     def __init__(self, mean, std, inverse=False):
-        self.mean = torch.tensor(mean)
-        self.std = torch.tensor(std)
+        self.mean = torch.FloatTensor(mean)
+        self.std = torch.FloatTensor(std)
         self.inverse = inverse
 
     def __call__(self, sample):

@@ -877,14 +877,14 @@ class Tracker:
             self.im_info.data.resize_(im_info_tmp.size()).copy_(im_info_tmp).contiguous()
             self.im_data.data.resize_(im_data_tmp.size()).copy_(im_data_tmp).contiguous()
 
-            #print("self.boxes", self.boxes.data, "boxes shape", self.boxes.data.shape)
+            print("self.boxes", self.boxes.data, "boxes shape", self.boxes.data.shape)
             #print("im_data shape", self.im_data.data.shape)
 
             t2 = time.time()
             output = self.tracking_model(self.boxes, self.im_data)  # the deltas, [bs, num_box, 4]
             track_time = time.time() - t2
 
-            #print("output", output.data, "output shape:", output.data.shape)
+            print("output", output.data, "output shape:", output.data.shape)
 
             return output, load_time, track_time
         else:

@@ -4,8 +4,8 @@ import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
 import torchvision
 
-from lib.resnet_atrous import resnet18
-from lib.utils import load_pretrained_weights_to_modified_resnet, \
+from tiny_tcnn.resnet_atrous import resnet18
+from tiny_tcnn.utils import load_pretrained_weights_to_modified_resnet, \
     change_box_format
 
 

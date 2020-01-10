@@ -1,0 +1,3 @@
+1) Start both containers with `docker-compose up`
+2) In otcd_pytorch_1_3 run `python3 run_tiny_tcnn_in_container.py`
+3) In otcd run `python3 tracking_on_mot.py --detection_interval 10`

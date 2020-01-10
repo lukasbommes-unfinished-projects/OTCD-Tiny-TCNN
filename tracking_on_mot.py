@@ -5,12 +5,12 @@ set_visible_devices(GPU_IDS)
 
 import argparse
 from lib.tracking.tracker import Tracker
+from tiny_tcnn.tracker import Tracker as TrackerTinyTCNN
 import os
 import numpy as np
 from lib.model.detection_net.rfcn import RFCN
 from lib.model.detection_sbc_joint.det_sbc import DET_SBC
 from lib.model.tracking_net.rfcn_tracking_single_branch import RFCN_tracking
-from tiny_tcnn.tracker import Tracker as TrackerTinyTCNN
 from lib.model.utils.config import cfg, cfg_from_file, cfg_from_list
 from lib.model.sbc_net.spatial_binary_classifier import SBC
 import torch
@@ -75,7 +75,7 @@ if __name__ == '__main__':
     # crop image patch, mv, residual for boxes (detections). And the mask obtained in the
     # appearance matching process also will be preserved.
     args.additional_data_for_box = False
-    args.vis = False
+    args.vis = True
 
     args.feature_crop_size = (1024, 7, 7)  # appearance crop size (h, w)
     args.mv_crop_size = (2, 120, 40) # mv crop size. (c, h, w)
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     args.tracking_net_data_type = 'mv_residual'
 
     # whether to use Tiny T-CNN instead of original T-CNN
-    args.use_tiny_tcnn = True
+    args.use_tiny_tcnn = False
 
     # ----------------set the configures for the model we trained on motchallenge ------------------------------
     if args.large_scale:
@@ -150,7 +150,6 @@ if __name__ == '__main__':
 
     if args.use_tiny_tcnn:
         tracker_tiny_tcnn = TrackerTinyTCNN(base_net_model=detection_model,
-                                            tracking_model=tracking_model,  # TODO: remove this later
                                             appearance_model=appearance_model,
                                             args=args, cfg=cfg)
     else:

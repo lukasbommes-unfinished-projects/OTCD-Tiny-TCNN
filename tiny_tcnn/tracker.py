@@ -9,6 +9,7 @@ import pickle
 import struct
 import socket
 from socket_utils import socket_config, send_msg, recv_msg
+import cv2
 
 from lib.model.nms.nms_wrapper import nms
 from lib.model.rpn.bbox_transform import bbox_transform_inv, clip_boxes, bbox_transform_inv_one_class, bbox_iou
@@ -24,8 +25,12 @@ from lib.tracking.utils import crop_data_for_boxes
 from lib.model.roi_align.roi_align.roi_align import RoIAlign
 import matplotlib.pyplot as plt
 
+from tiny_tcnn.transforms.transforms import StandardizeMotionVectors, StandardizeVelocities
+from tiny_tcnn.dataset.motion_vectors import get_vectors_by_source, normalize_vectors, motion_vectors_to_grid
+from tiny_tcnn.dataset.stats import StatsMpeg4DenseFullSinglescale as Stats
+
 class Tracker:
-    def __init__(self, base_net_model, tracking_model, appearance_model, classes=None, args=None, cfg=None):
+    def __init__(self, base_net_model, appearance_model, classes=None, args=None, cfg=None):
         self.classes = np.asarray(['__background__', 'person']) if classes is None else classes
         self.args = args
         self.cfg = cfg
@@ -36,6 +41,7 @@ class Tracker:
         self.mv_crop_size = self.args.mv_crop_size  # mv crop size. (c, h, w)
         self.im_crop_size = self.args.im_crop_size  # im crop size, (c, h, w)
         self.resdual_crop_size = self.args.residual_crop_size # residual crop size, (c, h, w)
+        self.frame_shape = None
 
         # the iou less than (1-self.max_iou_distance) will be disregarded.
         self.max_iou_distance = 0.7
@@ -83,7 +89,7 @@ class Tracker:
 
         # define the network
         self.base_net_model = base_net_model
-        self.tracking_model = tracking_model
+        #self.tracking_model = tracking_model
         self.appearance_model = appearance_model
 
         # define some tools for RoIAlign cropping
@@ -122,6 +128,15 @@ class Tracker:
         self.num_boxes = Variable(self.num_boxes, volatile=True)
         self.track_feature = Variable(self.track_feature, volatile=True)
         self.detection_feature = Variable(self.detection_feature, volatile=True)
+
+        stats = Stats()
+        self.standardize_motion_vectors = StandardizeMotionVectors(
+            mean=stats.motion_vectors["mean"],
+            std=stats.motion_vectors["std"])
+        self.standardize_velocities = StandardizeVelocities(
+            mean=stats.velocities["mean"],
+            std=stats.velocities["std"],
+            inverse=True)
 
         # socket connection for data exchange with Tiny T-CNN container
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -327,6 +342,15 @@ class Tracker:
         print('time analysis file saved in ' + time_file)
         print('FPS (without load): {}'.format(1.0 / (total_time_no_load / total_frames)))
 
+    def preprocess_motion_vectors(self, motion_vectors):
+        """Preprocesses motion vectors depending on the codec, vector type and mvs_mode."""
+        motion_vectors = normalize_vectors(motion_vectors)
+        motion_vectors = get_vectors_by_source(motion_vectors, "past")
+        motion_vectors = motion_vectors_to_grid(motion_vectors, (self.frame_shape[1], self.frame_shape[0]))
+        motion_vectors = torch.from_numpy(motion_vectors).float()
+        motion_vectors = motion_vectors.unsqueeze(0)  # add batch dimension
+        return motion_vectors
+
     def get_frame_blob_from_video(self, video_path, frame_id, load_data_for=None):
         """
         This function extract the image, motion vector, residual from the given video
@@ -344,55 +368,78 @@ class Tracker:
         in_group_idx = int((frame_id - 1) % self.gop_size)  # the index in the group
 
         if load_data_for == 'track': # load mv and residual
-            mv = coviar.load(video_path, gop_idx, in_group_idx, 1, accumulate)
-            residual = coviar.load(video_path, gop_idx, in_group_idx, 2, accumulate)
 
-            # check whether it is a gray image
-            if len(residual.shape) == 2:
-                residual = residual[:, :, np.newaxis]
-                residual = np.concatenate((residual, residual, residual), axis=2)
+            #print(video_path)
+            #print("frame_id", frame_id)
+            #print("gop_idx", gop_idx)
+            #print("in_group_idx", in_group_idx)
 
-            residual_shape = residual.shape
-            residual_size_min = np.min(residual_shape[0:2])
-            residual_size_max = np.max(residual_shape[0:2])
+            video_path_root = str.split(video_path, "/")[:-1]
+            mvs_file = os.path.join(*video_path_root, "mvs-mpeg4-1.0",
+                "{:06d}.pkl".format(frame_id))
+            #print(mvs_file)
 
-            target_size = self.cfg.TEST.SCALES[0]  # cfg.TEST.SCALES = (600, )
-            # Prevent the biggest axis from being more than MAX_SIZE
-            residual_scale = float(target_size) / float(residual_size_min)
-            if np.round(residual_scale * residual_size_max) > self.cfg.TEST.MAX_SIZE:
-                im_scale = float(self.cfg.TEST.MAX_SIZE) / float(residual_size_max)
-                target_size = np.round(im_scale * residual_size_min)
+            mvs_item = pickle.load(open(mvs_file, "rb"))
+            motion_vectors = mvs_item["motion_vectors"]
+            frame_type = mvs_item["frame_type"]
 
-            mv, mv_scale = prep_mv_for_blob(im=mv,
-                                            mv_normal_scale=self.cfg.MV_NORMAL_SCALE,
-                                            mv_means=self.cfg.MV_MEANS,
-                                            mv_stds=self.cfg.MV_STDS,
-                                            target_size=target_size,
-                                            channel=self.cfg.MV_CHANNEL)
-            residual, residual_scale = prep_residual_for_blob(im=residual,
-                                                              pixel_normal_scale=self.cfg.RESIDUAL_NORMAL_SCALE,
-                                                              pixel_means=self.cfg.RESIDUAL_MEANS,
-                                                              pixel_stds=self.cfg.RESIDUAL_STDS,
-                                                              target_size=target_size,
-                                                              channel=self.cfg.RESIDUAL_CHANNEL)
+            # pre-process mvs
+            motion_vectors = self.preprocess_motion_vectors(motion_vectors)
+            sample = self.standardize_motion_vectors({"motion_vectors": [motion_vectors]})
+            motion_vectors = sample["motion_vectors"][0][0, ...].numpy()
 
-            # check the scales of im, mv and residual
-            if mv_scale != residual_scale:
-                raise RuntimeError(
-                    'the scales to resize motion vector {} and residual {} are not the same'.
-                        format(mv_scale, residual_scale))
+            return motion_vectors, 1.0
 
-            residual_shape = residual.shape
-            if self.args.tracking_net_data_type == 'mv_residual':
-                frame_data = np.zeros((residual_shape[0], residual_shape[1], 2 + 3))
-                frame_data[:, :, 0:2] = mv
-                frame_data[:, :, 2:5] = residual
-            elif self.args.tracking_net_data_type == 'mv':
-                frame_data = mv
-            elif self.args.tracking_net_data_type == 'residual':
-                frame_data = residual
-
-            return frame_data, residual_scale
+        # if load_data_for == 'track': # load mv and residual
+        #     mv = coviar.load(video_path, gop_idx, in_group_idx, 1, accumulate)
+        #     residual = coviar.load(video_path, gop_idx, in_group_idx, 2, accumulate)
+        #
+        #     # check whether it is a gray image
+        #     if len(residual.shape) == 2:
+        #         residual = residual[:, :, np.newaxis]
+        #         residual = np.concatenate((residual, residual, residual), axis=2)
+        #
+        #     residual_shape = residual.shape
+        #     residual_size_min = np.min(residual_shape[0:2])
+        #     residual_size_max = np.max(residual_shape[0:2])
+        #
+        #     target_size = self.cfg.TEST.SCALES[0]  # cfg.TEST.SCALES = (600, )
+        #     # Prevent the biggest axis from being more than MAX_SIZE
+        #     residual_scale = float(target_size) / float(residual_size_min)
+        #     if np.round(residual_scale * residual_size_max) > self.cfg.TEST.MAX_SIZE:
+        #         im_scale = float(self.cfg.TEST.MAX_SIZE) / float(residual_size_max)
+        #         target_size = np.round(im_scale * residual_size_min)
+        #
+        #     mv, mv_scale = prep_mv_for_blob(im=mv,
+        #                                     mv_normal_scale=self.cfg.MV_NORMAL_SCALE,
+        #                                     mv_means=self.cfg.MV_MEANS,
+        #                                     mv_stds=self.cfg.MV_STDS,
+        #                                     target_size=target_size,
+        #                                     channel=self.cfg.MV_CHANNEL)
+        #     residual, residual_scale = prep_residual_for_blob(im=residual,
+        #                                                       pixel_normal_scale=self.cfg.RESIDUAL_NORMAL_SCALE,
+        #                                                       pixel_means=self.cfg.RESIDUAL_MEANS,
+        #                                                       pixel_stds=self.cfg.RESIDUAL_STDS,
+        #                                                       target_size=target_size,
+        #                                                       channel=self.cfg.RESIDUAL_CHANNEL)
+        #
+        #     # check the scales of im, mv and residual
+        #     if mv_scale != residual_scale:
+        #         raise RuntimeError(
+        #             'the scales to resize motion vector {} and residual {} are not the same'.
+        #                 format(mv_scale, residual_scale))
+        #
+        #     residual_shape = residual.shape
+        #     if self.args.tracking_net_data_type == 'mv_residual':
+        #         frame_data = np.zeros((residual_shape[0], residual_shape[1], 2 + 3))
+        #         frame_data[:, :, 0:2] = mv
+        #         frame_data[:, :, 2:5] = residual
+        #     elif self.args.tracking_net_data_type == 'mv':
+        #         frame_data = mv
+        #     elif self.args.tracking_net_data_type == 'residual':
+        #         frame_data = residual
+        #
+        #     return frame_data, residual_scale
 
         elif load_data_for in ['base_feat', 'detect']: # load im (processed)
             im = coviar.load(video_path, gop_idx, in_group_idx, 0, accumulate)
@@ -857,9 +904,7 @@ class Tracker:
             boxes = None
             for t in self.tracks:
                 one_box = t.to_tlbr()
-                # rescale to origin image
-                # one_box = one_box / im_scale
-                one_box = one_box.unsqueeze(dim=0)  # [1, 4], [x1, y1, x2, y2]
+                one_box = one_box.unsqueeze(dim=0)  # [1, 4], [xmin, ymin, widht, height]
                 if boxes is None:
                     boxes = one_box.new().resize_(0, 4)
 
@@ -874,13 +919,25 @@ class Tracker:
             im_data_tmp, im_scale_tmp = self.get_frame_blob_from_video(video_path=self.video_file,
                                                                        frame_id=self.frame_id,
                                                                        load_data_for='track')
+
+            # im_scale_tmp: float (1.0)
+            # im_data_tmp: numpy.ndarray [1080, 1920, 3]
+            #print("im_scale_tmp", im_scale_tmp)
+            #print("im_data_tmp type", type(im_data_tmp))
+            #print("im_data_tmp shape", im_data_tmp.shape)
+
             load_time = time.time() - t1
 
             im_info_tmp = np.array([[im_data_tmp.shape[0], im_data_tmp.shape[1], im_scale_tmp, frame_type]],
                                    dtype=np.float32)
             im_info_tmp = torch.from_numpy(im_info_tmp)
             im_data_tmp = np.array(im_data_tmp[np.newaxis, :, :, :], dtype=np.float32)  # [bs, h, w, c]
+            im_data_tmp = im_data_tmp[..., [2, 1, 0]]  # change channel order from BGR to RGB
             im_data_tmp = torch.from_numpy(im_data_tmp).permute(0, 3, 1, 2).contiguous()  # [bs, c, h, w]
+
+            # im_data_tmp: torch.FloatTensor [1, 3, 1080, 1920]
+            #print("im_data_tmp type", type(im_data_tmp))
+            #print("im_data_tmp shape", im_data_tmp.shape)
 
             self.im_info.data.resize_(im_info_tmp.size()).copy_(im_info_tmp).contiguous()
             self.im_data.data.resize_(im_data_tmp.size()).copy_(im_data_tmp).contiguous()
@@ -889,34 +946,46 @@ class Tracker:
             #output = self.tracking_model(self.boxes, self.im_data)  # the deltas, [bs, num_box, 4]
             #track_time = time.time() - t2
 
-            # TODO:
             # - send input data via socket to Tiny T-CNN in second container
             # - perform timing analysis in second container
             # - retrieve network output and timing result here
-            #output, track_time = socketsend(self.boxes, self.im_data)
-
             print("sending data to tiny t-cnn container:")
             print("self.boxes", self.boxes.data, "boxes shape", self.boxes.data.shape)
-            print("im_data shape", self.im_data.data.shape)
+            #print("im_data shape", self.im_data.data.shape)
 
             socket_data = {
-                "boxes": self.boxes.data.cpu(),
-                "im_data": self.im_data.data.cpu()
+                "boxes": self.boxes.data.cpu().numpy(),
+                "im_data": self.im_data.data.cpu().numpy()
             }
-            #socket_data = ["Hallo", "Welt"]
             socket_data = pickle.dumps(socket_data)
-            print("Data processed. Sending...")
+            #print("Data processed. Sending...")
             send_msg(self.sock, socket_data)
             print("Data sent.")
 
             # receive output from socket
+            output = None
+            track_time = None
             socket_data = recv_msg(self.sock)
             if socket_data:
                 socket_data = pickle.loads(socket_data)
+                velocities_pred = torch.from_numpy(socket_data["velocities_pred"])
+                track_time = socket_data["track_time"]
+
+                print("velocities_pred received", velocities_pred)
+
+                # post process velocities to become torch.FloatTensor of shape [1, K, 4] where K is number of boxes
+                velocities_pred = velocities_pred.view(1, -1, 2)
+                velocities_pred = velocities_pred[0, ...]
+                sample = self.standardize_velocities({"velocities": velocities_pred})
+                velocities_pred = sample["velocities"]
+                velocities_pred = velocities_pred.unsqueeze(dim=0)
+                velocities_pred = torch.cat([velocities_pred, torch.zeros_like(velocities_pred)], dim=-1)
+
                 print("received model output via socket.")
-                print(socket_data)
-                output = socket_data
-                track_time = 0
+                print("velocities_pred", velocities_pred)
+                print("track_time", track_time)
+
+                output = velocities_pred.cuda()
 
             return output, load_time, track_time
         else:
@@ -943,7 +1012,7 @@ class Tracker:
                 box_deltas = box_deltas.view(-1, 4) * self.bbox_reg_std + self.bbox_reg_mean  # [num_box, 4]
                 box_deltas = box_deltas.view(batch_size, -1, 4)
             boxes = bbox_transform_inv(boxes=self.boxes.data, deltas=box_deltas,
-                                       sigma=self.tracking_model.transform_sigma)  # [1, num_box, 4]
+                                       sigma=self.args.tracking_box_transform_sigma)  # [1, num_box, 4]
 
             for t_idx in range(len(self.tracks)):
                 self.tracks[t_idx].tracking(bbox_tlbr=boxes[0, t_idx, :])
@@ -1393,6 +1462,12 @@ class Tracker:
             self.public_detections = torch.FloatTensor(public_detections)
             if self.args.cuda:
                 self.public_detections = self.public_detections.cuda()
+
+        # get frame shape of video
+        video_file_root = str.split(video_file, "/")[:-1]
+        frame_file = os.path.join(*video_file_root, "img1", "000001.jpg")
+        frame = cv2.imread(frame_file, cv2.IMREAD_COLOR)
+        self.frame_shape = frame.shape[:2]
 
         # infact the num_frames + 1 is the true number of frames in this video
         num_frames = coviar.get_num_frames(video_file) + 1 # in fact, num_frames+1 is the number of frames in this video
