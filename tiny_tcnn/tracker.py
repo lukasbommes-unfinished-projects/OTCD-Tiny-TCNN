@@ -138,10 +138,6 @@ class Tracker:
             std=stats.velocities["std"],
             inverse=True)
 
-        # socket connection for data exchange with Tiny T-CNN container
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((socket_config["host"], socket_config['port']))
-
     def prepare_data_to_show(self, in_data, tool_type='cv2'):
         # indata: [bs, c, h, w]
         if isinstance(in_data, Variable):
@@ -1009,10 +1005,10 @@ class Tracker:
             batch_size = box_deltas.size(0)
             if self.cfg.TRAIN.BBOX_NORMALIZE_TARGETS_PRECOMPUTED:
                 # Optionally normalize targets by a precomputed mean and stdev
-                box_deltas = box_deltas.view(-1, 4) * self.bbox_reg_std + self.bbox_reg_mean  # [num_box, 4]
+                #box_deltas = box_deltas.view(-1, 4) * self.bbox_reg_std + self.bbox_reg_mean  # [num_box, 4]
                 box_deltas = box_deltas.view(batch_size, -1, 4)
             boxes = bbox_transform_inv(boxes=self.boxes.data, deltas=box_deltas,
-                                       sigma=self.args.tracking_box_transform_sigma)  # [1, num_box, 4]
+                                       sigma=1.0)  # [1, num_box, 4]
 
             for t_idx in range(len(self.tracks)):
                 self.tracks[t_idx].tracking(bbox_tlbr=boxes[0, t_idx, :])
@@ -1439,6 +1435,10 @@ class Tracker:
         """
         if not os.path.exists(video_file):
             raise RuntimeError(video_file + ' does not exists')
+
+        # open a new socket connection to Tiny T-CNN container
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((socket_config["host"], socket_config['port']))
 
         video_file_list = video_file.split('/')
         self.seq = video_file_list[-2]

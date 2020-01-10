@@ -89,7 +89,7 @@ if __name__ == '__main__':
     args.tracking_net_data_type = 'mv_residual'
 
     # whether to use Tiny T-CNN instead of original T-CNN
-    args.use_tiny_tcnn = False
+    args.use_tiny_tcnn = True
 
     # ----------------set the configures for the model we trained on motchallenge ------------------------------
     if args.large_scale:
