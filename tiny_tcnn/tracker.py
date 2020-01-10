@@ -25,7 +25,7 @@ from lib.tracking.utils import crop_data_for_boxes
 from lib.model.roi_align.roi_align.roi_align import RoIAlign
 import matplotlib.pyplot as plt
 
-from tiny_tcnn.transforms.transforms import StandardizeMotionVectors, StandardizeVelocities
+from tiny_tcnn.transforms.transforms import StandardizeMotionVectors
 from tiny_tcnn.dataset.motion_vectors import get_vectors_by_source, normalize_vectors, motion_vectors_to_grid
 from tiny_tcnn.dataset.stats import StatsMpeg4DenseFullSinglescale as Stats
 
@@ -133,10 +133,6 @@ class Tracker:
         self.standardize_motion_vectors = StandardizeMotionVectors(
             mean=stats.motion_vectors["mean"],
             std=stats.motion_vectors["std"])
-        self.standardize_velocities = StandardizeVelocities(
-            mean=stats.velocities["mean"],
-            std=stats.velocities["std"],
-            inverse=True)
 
         # socket connection for data exchange with Tiny T-CNN container
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -955,7 +951,7 @@ class Tracker:
 
             socket_data = {
                 "boxes": self.boxes.data.cpu().numpy(),
-                "im_data": self.im_data.data.cpu().numpy()
+                "motion_vectors_p": self.im_data.data.cpu().numpy()
             }
             socket_data = pickle.dumps(socket_data)
             #print("Data processed. Sending...")
@@ -968,26 +964,12 @@ class Tracker:
             socket_data = recv_msg(self.sock)
             if socket_data:
                 socket_data = pickle.loads(socket_data)
-                velocities_pred = torch.from_numpy(socket_data["velocities_pred"])
+                boxes_pred = torch.from_numpy(socket_data["boxes_pred"]).cuda()
                 track_time = socket_data["track_time"]
 
-                print("velocities_pred received", velocities_pred)
+                print("boxes_pred", boxes_pred)
 
-                # post process velocities to become torch.FloatTensor of shape [1, K, 4] where K is number of boxes
-                velocities_pred = velocities_pred.view(1, -1, 2)
-                velocities_pred = velocities_pred[0, ...]
-                sample = self.standardize_velocities({"velocities": velocities_pred})
-                velocities_pred = sample["velocities"]
-                velocities_pred = velocities_pred.unsqueeze(dim=0)
-                velocities_pred = torch.cat([velocities_pred, torch.zeros_like(velocities_pred)], dim=-1)
-
-                print("received model output via socket.")
-                print("velocities_pred", velocities_pred)
-                print("track_time", track_time)
-
-                output = velocities_pred.cuda()
-
-            return output, load_time, track_time
+            return boxes_pred, load_time, track_time
         else:
             return  None, 0, 0
 
