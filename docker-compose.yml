@@ -22,6 +22,9 @@ services:
   otcd_pytorch_1_3:
     container_name: otcd_pytorch_1_3
     image: pytorch6
+    #build:
+    #    context: ./pytorch
+    #    dockerfile: ./pytorch/docker/pytorch/Dockerfile
     runtime: nvidia
     environment:
       - DISPLAY
